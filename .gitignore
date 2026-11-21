@@ -1,0 +1,12 @@
+# Generated in CI by `flutter create`, never committed
+frontend/android/
+frontend/ios/
+frontend/build/
+frontend/.dart_tool/
+frontend/.flutter-plugins*
+frontend/.packages
+frontend/pubspec.lock
+frontend/.metadata
+*.jks
+*.keystore
+.env
