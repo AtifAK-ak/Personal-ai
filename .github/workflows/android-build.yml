@@ -61,6 +61,11 @@ jobs:
       - name: Run tests
         run: flutter test
 
+      - name: Use the fixed debug signing key (so app updates keep your data and keys)
+        run: |
+          mkdir -p ~/.android
+          cp android_overrides/debug.keystore ~/.android/debug.keystore
+
       - name: Build release APK (compiles Kotlin too)
         run: |
           set -o pipefail

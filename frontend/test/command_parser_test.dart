@@ -21,6 +21,25 @@ void main() {
 
   _extras();
 
+  test('new device commands', () {
+    expect(type('what is my battery level'), CommandType.battery);
+    expect(type('play the next song'), CommandType.mediaNext);
+    expect(type('pause the music'), CommandType.mediaPause);
+    expect(type('start recording'), CommandType.recStart);
+    expect(type('stop recording'), CommandType.recStop);
+    expect(type('open wifi settings'), CommandType.openPanel);
+    expect(type('open camera'), CommandType.openCamera);
+    expect(type('what time is it'), CommandType.timeNow);
+    final c = CommandParser.parse('find Ahmed in my contacts');
+    expect(c?.type, CommandType.contactSearch);
+    expect(c?.arg, 'ahmed');
+    expect(type('call ahmed'), CommandType.callContact);
+    expect(type('navigate to my university'), CommandType.navigate);
+    expect(type('find the nearest hospital'), CommandType.mapsSearch);
+    expect(type('search for dart tutorials'), CommandType.webSearch);
+    expect(type('increase music volume'), CommandType.volumeUp);
+  });
+
   test('unknown text is not a command', () {
     expect(CommandParser.parse('hello there'), isNull);
     expect(CommandParser.parse(''), isNull);

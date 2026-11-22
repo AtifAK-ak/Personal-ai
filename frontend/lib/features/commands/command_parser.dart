@@ -7,6 +7,24 @@ enum CommandType {
   volumeUnmute,
   volumeSet,
   openApp,
+  openCamera,
+  openPanel,
+  battery,
+  timeNow,
+  mediaPlay,
+  mediaPause,
+  mediaNext,
+  mediaPrev,
+  mediaStop,
+  recStart,
+  recStop,
+  recPause,
+  recResume,
+  contactSearch,
+  callContact,
+  navigate,
+  mapsSearch,
+  webSearch,
 }
 
 class ParsedCommand {
@@ -27,11 +45,82 @@ class CommandParser {
   static bool _ur(String t, List<String> words) => words.any(t.contains);
 
   static ParsedCommand? parse(String input) {
-    final t = input.toLowerCase().trim();
+    final t = input
+        .toLowerCase()
+        .trim()
+        .replaceFirst(RegExp(r'^alex[,\s]+'), '')
+        .replaceFirst(RegExp(r'^please\s+'), '');
     if (t.isEmpty) return null;
 
-    final open = RegExp(r'^(?:alex[,\s]+)?(?:please\s+)?open\s+(?:the\s+)?(.+)$')
+    final rec = RegExp(r'\b(start|stop|pause|resume)\b.*\brecord(?:ing)?\b').firstMatch(t);
+    if (rec != null) {
+      switch (rec.group(1)) {
+        case 'start':
+          return const ParsedCommand(CommandType.recStart);
+        case 'stop':
+          return const ParsedCommand(CommandType.recStop);
+        case 'pause':
+          return const ParsedCommand(CommandType.recPause);
+        default:
+          return const ParsedCommand(CommandType.recResume);
+      }
+    }
+
+    if (RegExp(r'\b(music|song|songs|track)\b').hasMatch(t) && !_en(t, ['volume'])) {
+      if (_en(t, ['next'])) return const ParsedCommand(CommandType.mediaNext);
+      if (_en(t, ['previous', 'last'])) return const ParsedCommand(CommandType.mediaPrev);
+      if (_en(t, ['pause'])) return const ParsedCommand(CommandType.mediaPause);
+      if (_en(t, ['stop'])) return const ParsedCommand(CommandType.mediaStop);
+      if (_en(t, ['play', 'resume'])) return const ParsedCommand(CommandType.mediaPlay);
+    }
+
+    if (_en(t, ['battery', 'charging'])) return const ParsedCommand(CommandType.battery);
+
+    if (_ur(t, ['what time', 'current time', 'the time', 'what date', 'current date', 'the date', "today's date"])) {
+      return const ParsedCommand(CommandType.timeNow);
+    }
+
+    final panel = RegExp(r'\b(wifi|wi-fi|bluetooth|mobile network|mobile data|display|sound)\s+settings\b')
         .firstMatch(t);
+    if (panel != null) {
+      final p = panel.group(1)!;
+      final name = p.startsWith('wi')
+          ? 'wifi'
+          : p.startsWith('mobile')
+              ? 'mobile'
+              : p;
+      return ParsedCommand(CommandType.openPanel, null, name);
+    }
+
+    final contact = RegExp(r'^(?:find|search for|search|look up|show)\s+(.+?)\s+in my contacts$')
+        .firstMatch(t);
+    if (contact != null) {
+      return ParsedCommand(CommandType.contactSearch, null, contact.group(1)!.trim());
+    }
+    final call = RegExp(r'^call\s+(.+)$').firstMatch(t);
+    if (call != null && call.group(1)!.trim().length <= 40) {
+      return ParsedCommand(CommandType.callContact, null, call.group(1)!.trim());
+    }
+
+    if (RegExp(r'^(?:open|launch)\s+(?:my\s+|the\s+)?camera$').hasMatch(t)) {
+      return const ParsedCommand(CommandType.openCamera);
+    }
+
+    final nav = RegExp(r'^(?:navigate to|take me to|directions to|navigate)\s+(.+)$').firstMatch(t);
+    if (nav != null) return ParsedCommand(CommandType.navigate, null, nav.group(1)!.trim());
+    final near = RegExp(r'^(?:find|search for|show)\s+(?:me\s+)?(?:the\s+)?((?:nearest|nearby|closest)\s+.+)$')
+        .firstMatch(t);
+    if (near != null) return ParsedCommand(CommandType.mapsSearch, null, near.group(1)!.trim());
+    final search = RegExp(r'^search\s+(?:for\s+)?(.+)$').firstMatch(t);
+    if (search != null) {
+      final q = search.group(1)!.trim();
+      if (q.endsWith(' nearby')) {
+        return ParsedCommand(CommandType.mapsSearch, null, q);
+      }
+      return ParsedCommand(CommandType.webSearch, null, q);
+    }
+
+    final open = RegExp(r'^(?:open|launch)\s+(?:the\s+)?(.+)$').firstMatch(t);
     if (open != null) {
       final name = open.group(1)!.trim();
       if (name.isNotEmpty && name.length <= 40) {

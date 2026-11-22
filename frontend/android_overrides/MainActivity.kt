@@ -19,6 +19,11 @@ class MainActivity : FlutterActivity() {
                 FlashlightService(ctx),
                 VolumeService(ctx),
                 AppLauncherService(ctx),
+                DeviceService(ctx),
+                ContactsService(ctx),
+                RecorderService(ctx),
+                SpeakService(ctx),
+                SpeechService(this),
                 PrefsService(ctx),
                 perms
             )

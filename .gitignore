@@ -10,3 +10,8 @@ frontend/.metadata
 *.jks
 *.keystore
 .env
+# fixed debug signing key (not a secret; keeps app updates installable)
+!frontend/android_overrides/debug.keystore
+
+# Keep local signing key out of Git
+frontend/android_overrides/debug.keystore

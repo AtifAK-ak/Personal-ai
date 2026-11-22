@@ -6,6 +6,8 @@ import '../../core/constants.dart';
 import '../../core/native_bridge.dart';
 import '../../core/theme.dart';
 import '../onboarding/permissions_screen.dart';
+import 'api_keys_screen.dart';
+import 'voice_section.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -185,6 +187,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ]),
+          const VoiceSection(),
           _section('Backend connection', [
             TextField(
               controller: _url,
@@ -219,8 +222,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 6),
             const Text(
-              'API keys and voice models live on the backend, never in this app.',
+              'Optional: only needed if you host the backend yourself. Without it the app works directly from your phone.',
               style: TextStyle(color: kMuted, fontSize: 12),
+            ),
+          ]),
+          _section('API keys', [
+            const Text(
+              'Add, test, revoke and switch the Groq, Tavily, Newsdata, Serp, OpenWeather and Fish Audio keys. '
+              'Stored on this phone (or on your backend if you set one) and shown as dots.',
+              style: TextStyle(color: kMuted),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const ApiKeysScreen()),
+              ),
+              child: const Text('Manage API keys'),
             ),
           ]),
           _section('Permissions', [

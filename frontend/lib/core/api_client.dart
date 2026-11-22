@@ -1,5 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 
 import 'backend_config.dart';
 
@@ -38,6 +41,10 @@ class ApiClient {
     }
   }
 
+  /// Generic call, used by the admin screen.
+  Future<Map<String, dynamic>> request(String method, String path, [Object? body]) =>
+      _request(method, path, body);
+
   Future<Map<String, dynamic>> health() => _request('GET', '/health');
 
   Future<Map<String, dynamic>> chat(String message) =>
@@ -45,4 +52,23 @@ class ApiClient {
 
   Future<Map<String, dynamic>> putProfile(Map<String, Object?> profile) =>
       _request('PUT', '/user/profile', profile);
+
+  /// Returns MP3 bytes for [text] in the given backend voice id.
+  Future<Uint8List> tts(String text, String voice) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final req = await client.openUrl('POST', Uri.parse('${config.url}/tts'));
+      req.headers.set('Authorization', 'Bearer ${config.token}');
+      req.headers.set('X-User-Id', config.userId);
+      req.headers.contentType = ContentType.json;
+      req.add(utf8.encode(jsonEncode({'text': text, 'voice': voice})));
+      final res = await req.close().timeout(const Duration(seconds: 60));
+      if (res.statusCode >= 400) {
+        throw ApiException(res.statusCode, 'tts failed');
+      }
+      return await consolidateHttpClientResponseBytes(res);
+    } finally {
+      client.close();
+    }
+  }
 }

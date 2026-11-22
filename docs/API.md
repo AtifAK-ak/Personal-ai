@@ -22,3 +22,5 @@ Admin endpoints need `Authorization: Bearer <ALEX_ADMIN_TOKEN>`. Run: `uvicorn a
 Providers: groq, tavily, newsdata, serp, openweather, fish.
 Errors: 401 bad token, 400 bad user id, 503 no usable key / not configured, 502 provider failed.
 Keys are loaded from the `*_API_KEYS` environment variables (comma separated) and from the admin endpoints. See `backend/.env.example`.
+
+The app's Settings, API keys screen uses the admin endpoints above with the admin token. Key values are never returned, only ids and status.
