@@ -61,10 +61,31 @@ jobs:
       - name: Run tests
         run: flutter test
 
-      - name: Use the fixed debug signing key (so app updates keep your data and keys)
+      - name: Prepare Android signing key
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
+          set -euo pipefail
           mkdir -p ~/.android
-          cp android_overrides/debug.keystore ~/.android/debug.keystore
+          if [ -n "${DEBUG_KEYSTORE_BASE64:-}" ]; then
+            echo "$DEBUG_KEYSTORE_BASE64" | base64 --decode > ~/.android/debug.keystore
+            echo "Using protected GitHub Actions signing key."
+          elif [ -f android_overrides/debug.keystore ]; then
+            cp android_overrides/debug.keystore ~/.android/debug.keystore
+            echo "Using repository-provided signing key."
+          else
+            echo "::warning::DEBUG_KEYSTORE_BASE64 is not configured; generating a temporary debug key. APK builds, but future updates signed with a different key may require uninstalling the previous app."
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          test -s ~/.android/debug.keystore
 
       - name: Build release APK (compiles Kotlin too)
         run: |
