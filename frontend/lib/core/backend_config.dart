@@ -28,7 +28,7 @@ class BackendConfig {
   /// Returns null while the backend is not configured in Settings.
   static Future<BackendConfig?> load() async {
     final url = (await NativeBridge.prefsGet(kPrefBackendUrl))?.trim() ?? '';
-    final token = (await NativeBridge.prefsGet(kPrefBackendToken))?.trim() ?? '';
+    final token = (await NativeBridge.secureGet(kPrefBackendToken))?.trim() ?? '';
     if (url.isEmpty || token.isEmpty) return null;
     return BackendConfig(
       url: url.endsWith('/') ? url.substring(0, url.length - 1) : url,

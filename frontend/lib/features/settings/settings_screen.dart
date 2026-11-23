@@ -7,6 +7,7 @@ import '../../core/native_bridge.dart';
 import '../../core/theme.dart';
 import '../onboarding/permissions_screen.dart';
 import 'api_keys_screen.dart';
+import 'diagnostics_screen.dart';
 import 'voice_section.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -50,7 +51,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final c = await NativeBridge.prefsGet(kPrefPersonaCustom);
     final n = await NativeBridge.prefsGet(kPrefUserName);
     final u = await NativeBridge.prefsGet(kPrefBackendUrl);
-    final t = await NativeBridge.prefsGet(kPrefBackendToken);
+    final t = await NativeBridge.secureGet(kPrefBackendToken);
     if (!mounted) return;
     setState(() {
       if (p != null && _presets.containsKey(p)) _preset = p;
@@ -96,7 +97,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _saveBackend() async {
     await NativeBridge.prefsSet(kPrefBackendUrl, _url.text.trim());
-    await NativeBridge.prefsSet(kPrefBackendToken, _token.text.trim());
+    await NativeBridge.secureSet(kPrefBackendToken, _token.text.trim());
     _snack('Backend settings saved');
   }
 
@@ -238,6 +239,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 MaterialPageRoute<void>(builder: (_) => const ApiKeysScreen()),
               ),
               child: const Text('Manage API keys'),
+            ),
+          ]),
+          _section('Diagnostics', [
+            OutlinedButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const DiagnosticsScreen()),
+              ),
+              child: const Text('View error log'),
             ),
           ]),
           _section('Permissions', [

@@ -87,7 +87,7 @@ class _VoiceSectionState extends State<VoiceSection> {
         _snack('Add a Fish Audio key (Manage API keys) to preview this voice.');
         return;
       }
-      final ref = await NativeBridge.prefsGet('$kPrefVoiceRefPrefix${v.id}');
+      final ref = await NativeBridge.secureGet('$kPrefVoiceRefPrefix${v.id}');
       final bytes = await store.call('fish', (k) => DirectProviders.fishTts(k, 'Hello, I am ${v.name}.', ref));
       await NativeBridge.playAudio(bytes);
     } on Exception {
@@ -98,7 +98,7 @@ class _VoiceSectionState extends State<VoiceSection> {
   Future<void> _saveRef() async {
     final value = _ref.text.trim();
     if (value.isEmpty) return;
-    await NativeBridge.prefsSet('$kPrefVoiceRefPrefix$_voice', value);
+    await NativeBridge.secureSet('$kPrefVoiceRefPrefix$_voice', value);
     _ref.clear();
     _snack('Voice ID saved for $_voice (hidden).');
   }

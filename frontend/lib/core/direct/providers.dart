@@ -4,10 +4,10 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
+import '../app_log.dart';
+import 'groq_policy.dart';
 import 'key_store.dart';
 
-const String kGroqModel =
-    String.fromEnvironment('GROQ_MODEL', defaultValue: 'llama-3.3-70b-versatile');
 const String kFishModel =
     String.fromEnvironment('FISH_MODEL', defaultValue: 's2.1-pro');
 
@@ -28,8 +28,10 @@ class DirectProviders {
         req.headers.set(e.key, e.value);
       }
       if (body != null) {
+        final data = utf8.encode(jsonEncode(body));
         req.headers.contentType = ContentType.json;
-        req.add(utf8.encode(jsonEncode(body)));
+        req.contentLength = data.length;
+        req.add(data);
       }
       final res = await req.close().timeout(const Duration(seconds: 40));
       return (res.statusCode, await consolidateHttpClientResponseBytes(res));
@@ -38,11 +40,33 @@ class DirectProviders {
     }
   }
 
-  static void _check(int status) {
+  /// Key problems (401/403 invalid key, 402/429 quota or rate limit) are handled by
+  /// key rotation and never by switching models.
+  static void _keyErrors(int status) {
     if (status == 401 || status == 403) throw const QuotaException(permanent: true);
     if (status == 402) throw const QuotaException(cooldown: 6 * 3600);
     if (status == 429) throw const QuotaException(cooldown: 120);
-    if (status >= 400) throw ProviderException(status);
+  }
+
+  static void _check(int status, [Uint8List? body]) {
+    _keyErrors(status);
+    if (status >= 400) throw ProviderException(status, _detail(body));
+  }
+
+  /// Pulls the human-readable message out of an error response.
+  static String _detail(Uint8List? body) {
+    if (body == null || body.isEmpty) return '';
+    try {
+      final d = jsonDecode(utf8.decode(body));
+      if (d is Map) {
+        final e = d['error'];
+        if (e is Map && e['message'] != null) return _clip(e['message'], 160);
+        if (d['message'] != null) return _clip(d['message'], 160);
+      }
+    } catch (_) {
+      // not JSON
+    }
+    return '';
   }
 
   static String _clip(Object? v, int n) {
@@ -53,27 +77,136 @@ class DirectProviders {
   static Map<String, dynamic> _json(Uint8List b) =>
       jsonDecode(utf8.decode(b)) as Map<String, dynamic>;
 
+  static const String _groqBase = 'https://api.groq.com/openai/v1';
+  static String? _model;
+  static bool _jsonOk = true;
+
+  static Map<String, String> _auth(String key) => {'Authorization': 'Bearer $key'};
+
+  /// (code, message) from an error response.
+  static (String, String) _errorInfo(Uint8List bytes) {
+    try {
+      final d = jsonDecode(utf8.decode(bytes));
+      if (d is Map && d['error'] is Map) {
+        final e = d['error'] as Map<dynamic, dynamic>;
+        return ('${e['code'] ?? ''}', _clip(e['message'], 300));
+      }
+    } catch (_) {
+      // not JSON
+    }
+    return ('', _clip(utf8.decode(bytes, allowMalformed: true), 200));
+  }
+
+  static String _content(Uint8List bytes) {
+    final choices = _json(bytes)['choices'] as List<dynamic>;
+    final first = choices.first as Map<String, dynamic>;
+    final message = first['message'] as Map<String, dynamic>;
+    return (message['content'] as String?) ?? '';
+  }
+
+  /// Model ids this key can use, or null when the list cannot be read.
+  static Future<Set<String>?> _availableModels(String key) async {
+    final (status, bytes) =
+        await _send('GET', Uri.parse('$_groqBase/models'), headers: _auth(key));
+    _keyErrors(status);
+    if (status >= 400) return null;
+    return (_json(bytes)['data'] as List<dynamic>? ?? [])
+        .whereType<Map<dynamic, dynamic>>()
+        .map((m) => '${m['id']}')
+        .toSet();
+  }
+
+  /// Real chat completion in JSON mode. null = the model works.
+  static Future<ModelProblem?> _validate(String key, String model) async {
+    final (status, bytes) = await _send(
+      'POST',
+      Uri.parse('$_groqBase/chat/completions'),
+      headers: _auth(key),
+      body: {
+        'model': model,
+        'messages': [
+          {'role': 'system', 'content': 'Reply with a JSON object.'},
+          {'role': 'user', 'content': 'Return {"ok": true} as JSON.'},
+        ],
+        'temperature': 0,
+        'response_format': {'type': 'json_object'},
+      },
+    );
+    _keyErrors(status);
+    if (status == 200) {
+      try {
+        return jsonDecode(_content(bytes)) is Map ? null : ModelProblem.json;
+      } catch (_) {
+        return ModelProblem.json;
+      }
+    }
+    final (code, msg) = _errorInfo(bytes);
+    final kind = GroqPolicy.classify(status, code, msg);
+    if (kind != null) return kind;
+    throw ProviderException(status, msg);
+  }
+
+  /// Primary first, then the backup. The order of the /models list is never used.
+  static Future<void> _select(String key) async {
+    final available = await _availableModels(key);
+    final candidates =
+        kGroqModels.where((m) => available == null || available.contains(m)).toList();
+    if (candidates.isEmpty) {
+      throw ProviderException(
+          0, 'None of ${kGroqModels.join(', ')} is available for this key.');
+    }
+    String? jsonFallback;
+    for (final m in candidates) {
+      final problem = await _validate(key, m);
+      AppLog.add('Groq model check $m: ${problem?.name ?? 'ok'}');
+      if (problem == null) {
+        _model = m;
+        _jsonOk = true;
+        return;
+      }
+      if (problem == ModelProblem.json) jsonFallback ??= m;
+    }
+    if (jsonFallback != null) {
+      AppLog.add('No Groq model passed the JSON test; using $jsonFallback without JSON mode');
+      _model = jsonFallback;
+      _jsonOk = false;
+      return;
+    }
+    throw const ProviderException(0, 'No configured Groq model passed the availability check.');
+  }
+
   static Future<String> groqChat(
     String key,
     List<Map<String, String>> messages, {
     bool json = false,
   }) async {
-    final (status, bytes) = await _send(
-      'POST',
-      Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
-      headers: {'Authorization': 'Bearer $key'},
-      body: {
-        'model': kGroqModel,
-        'messages': messages,
-        'temperature': 0.6,
-        if (json) 'response_format': {'type': 'json_object'},
-      },
-    );
-    _check(status);
-    final choices = _json(bytes)['choices'] as List<dynamic>;
-    final first = choices.first as Map<String, dynamic>;
-    final message = first['message'] as Map<String, dynamic>;
-    return (message['content'] as String?) ?? '';
+    for (var attempt = 0; attempt < 2; attempt++) {
+      if (_model == null) await _select(key);
+      final (status, bytes) = await _send(
+        'POST',
+        Uri.parse('$_groqBase/chat/completions'),
+        headers: _auth(key),
+        body: {
+          'model': _model!,
+          'messages': messages,
+          'temperature': 0.6,
+          if (json && _jsonOk) 'response_format': {'type': 'json_object'},
+        },
+      );
+      _keyErrors(status);
+      if ((status == 400 || status == 404) && attempt == 0) {
+        final (code, msg) = _errorInfo(bytes);
+        final kind = GroqPolicy.classify(status, code, msg);
+        if (kind != null) {
+          AppLog.add('Groq model $_model rejected (${kind.name}): $msg');
+          _model = null;
+          continue;
+        }
+      }
+      _check(status, bytes);
+      return _content(bytes);
+    }
+    throw const ProviderException(0, 'Groq model selection failed.');
   }
 
   static Future<bool> _groqModels(String key) async {

@@ -13,7 +13,7 @@ class Speaker {
   static Future<void> speak(String text) async {
     try {
       if (await NativeBridge.prefsGet(kPrefSpeak) == '0') return;
-      final locale = await NativeBridge.prefsGet(kPrefLocale) ?? 'en-US';
+      final locale = await NativeBridge.prefsGet(kPrefLocale) ?? 'ur-PK';
       final clipped = text.length > 500 ? text.substring(0, 500) : text;
       final cfg = await BackendConfig.load();
       if (cfg != null) {
@@ -34,7 +34,7 @@ class Speaker {
         if (store.hasKey('fish')) {
           try {
             final voice = await NativeBridge.prefsGet(kPrefVoice) ?? 'aisha';
-            final ref = await NativeBridge.prefsGet('$kPrefVoiceRefPrefix$voice');
+            final ref = await NativeBridge.secureGet('$kPrefVoiceRefPrefix$voice');
             final bytes = await store.call('fish', (k) => DirectProviders.fishTts(k, clipped, ref));
             if (bytes.isNotEmpty) {
               await NativeBridge.playAudio(bytes);

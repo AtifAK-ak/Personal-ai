@@ -24,7 +24,8 @@ class Settings:
     admin_token: str = ""
     data_dir: str = "./data"
     owner_name: str = "Muhammad Atif"
-    groq_model: str = "llama-3.3-70b-versatile"
+    groq_model: str = "openai/gpt-oss-120b"
+    groq_backup_model: str = "openai/gpt-oss-20b"
     groq_stt_model: str = "whisper-large-v3-turbo"
     fish_model: str = "s2.1-pro"
     voice_ids: dict = field(default_factory=dict)
@@ -44,7 +45,8 @@ def load_settings() -> Settings:
         admin_token=env.get("ALEX_ADMIN_TOKEN", ""),
         data_dir=env.get("ALEX_DATA_DIR", "./data"),
         owner_name=env.get("ALEX_OWNER_NAME", "Muhammad Atif"),
-        groq_model=env.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        groq_model=env.get("GROQ_MODEL", "openai/gpt-oss-120b"),
+        groq_backup_model=env.get("GROQ_BACKUP_MODEL", "openai/gpt-oss-20b"),
         groq_stt_model=env.get("GROQ_STT_MODEL", "whisper-large-v3-turbo"),
         fish_model=env.get("FISH_MODEL", "s2.1-pro"),
         voice_ids=voice_ids,

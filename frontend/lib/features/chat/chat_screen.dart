@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 
 import '../../core/api_client.dart';
 import '../../core/backend_config.dart';
+import '../../core/app_log.dart';
 import '../../core/constants.dart';
 import '../../core/direct/direct_brain.dart';
 import '../../core/direct/key_store.dart';
+import '../../core/errors.dart';
 import '../../core/native_bridge.dart';
 import '../../core/speaker.dart';
 import '../../core/theme.dart';
@@ -121,8 +123,9 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     } on KeyUnavailableException catch (e) {
       return e.message;
-    } on Exception {
-      return 'Could not reach the AI. Check your internet connection and your keys in Settings.';
+    } catch (e) {
+      AppLog.add('chat error: ${describeError(e)}');
+      return 'Could not get an answer. ${describeError(e)}';
     }
     return 'Hello ${widget.name}! My AI brain is not connected yet. '
         'For now I can run device commands. Add your Groq key in Settings, Manage API keys, to chat with the AI.';
@@ -141,7 +144,7 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
     }
-    final locale = await NativeBridge.prefsGet(kPrefLocale) ?? 'en-US';
+    final locale = await NativeBridge.prefsGet(kPrefLocale) ?? 'ur-PK';
     if (!mounted) return;
     setState(() => _listening = true);
     try {

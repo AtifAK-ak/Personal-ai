@@ -1,7 +1,12 @@
 """Thin HTTP clients for the external services. Keys come from the KeyPool."""
+import json
+import logging
+
 import httpx
 
 from .key_pool import QuotaError
+
+log = logging.getLogger("alex.groq")
 
 TIMEOUT = httpx.Timeout(30.0)
 
@@ -13,30 +18,147 @@ class ProviderError(Exception):
         self.detail = detail
 
 
-def _check(resp: httpx.Response) -> None:
+def _key_errors(resp) -> None:
+    """Key problems: handled by key rotation, never by switching models."""
     if resp.status_code in (401, 403):
         raise QuotaError(permanent=True)
     if resp.status_code == 402:
         raise QuotaError(cooldown=6 * 3600)
     if resp.status_code == 429:
         raise QuotaError(cooldown=120)
+
+
+def _check(resp) -> None:
+    _key_errors(resp)
     if resp.status_code >= 400:
         raise ProviderError(resp.status_code, resp.text[:200])
 
 
 # ---- raw calls (one key) ------------------------------------------------
-async def _groq_chat(key, model, messages, json_mode, temperature):
-    body = {"model": model, "messages": messages, "temperature": temperature}
-    if json_mode:
-        body["response_format"] = {"type": "json_object"}
+# ---- Groq model policy -----------------------------------------------------
+# Primary model, then one backup. Nothing else is ever chosen automatically.
+GROQ_STATE = {"model": None, "json_ok": True}
+GROQ_BASE = "https://api.groq.com/openai/v1"
+_MODEL_WORDS = (
+    "model_not_found", "model_decommissioned", "decommission", "deprecated",
+    "no longer supported", "does not exist", "not found", "unsupported model",
+    "is not supported", "not available",
+)
+_JSON_WORDS = ("response_format", "json_object", "json mode", "json_validate", "structured output")
+
+
+def error_info(resp):
+    """(code, message) from a Groq error response."""
+    try:
+        err = resp.json().get("error", {})
+    except (ValueError, AttributeError):
+        return "", str(getattr(resp, "text", ""))[:200]
+    if not isinstance(err, dict):
+        return "", str(err)[:200]
+    return str(err.get("code") or ""), str(err.get("message") or "")[:300]
+
+
+def classify_model_error(status, code, message):
+    """'model' (not found / retired / unsupported), 'json' (JSON mode unsupported) or None.
+
+    Only HTTP 400/404 can be a model problem. Anything else (401/403/429/5xx, or a 400
+    that is not about the model) must NOT cause a model switch."""
+    if status not in (400, 404):
+        return None
+    text = f"{code} {message}".lower()
+    if any(w in text for w in _JSON_WORDS):
+        return "json"
+    if code.lower() in ("model_not_found", "model_decommissioned"):
+        return "model"
+    if "model" in text and any(w in text for w in _MODEL_WORDS):
+        return "model"
+    return None
+
+
+def _headers(key):
+    return {"Authorization": f"Bearer {key}"}
+
+
+async def _groq_post(key, body):
     async with httpx.AsyncClient(timeout=TIMEOUT) as c:
-        r = await c.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            json=body,
-            headers={"Authorization": f"Bearer {key}"},
-        )
-    _check(r)
-    return r.json()["choices"][0]["message"]["content"]
+        return await c.post(f"{GROQ_BASE}/chat/completions", json=body, headers=_headers(key))
+
+
+async def _groq_available(key):
+    """Set of model ids this key can use, or None when the list cannot be read."""
+    async with httpx.AsyncClient(timeout=TIMEOUT) as c:
+        r = await c.get(f"{GROQ_BASE}/models", headers=_headers(key))
+    _key_errors(r)
+    if r.status_code >= 400:
+        return None
+    return {m.get("id") for m in r.json().get("data", [])}
+
+
+async def _groq_validate(key, model):
+    """Real chat completion in JSON mode. Returns 'ok', 'model' or 'json'."""
+    r = await _groq_post(key, {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "Reply with a JSON object."},
+            {"role": "user", "content": 'Return {"ok": true} as JSON.'},
+        ],
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+    })
+    _key_errors(r)
+    if r.status_code == 200:
+        try:
+            content = r.json()["choices"][0]["message"]["content"]
+            return "ok" if isinstance(json.loads(content), dict) else "json"
+        except (ValueError, KeyError, IndexError, TypeError):
+            return "json"
+    code, msg = error_info(r)
+    kind = classify_model_error(r.status_code, code, msg)
+    if kind:
+        return kind
+    raise ProviderError(r.status_code, msg)
+
+
+async def _groq_select(key, models):
+    available = await _groq_available(key)
+    candidates = [m for m in models if available is None or m in available]
+    if not candidates:
+        raise ProviderError(0, "None of the configured Groq models (" + ", ".join(models) + ") is available for this key")
+    json_fallback = None
+    for m in candidates:
+        result = await _groq_validate(key, m)
+        log.info("groq model check %s -> %s", m, result)
+        if result == "ok":
+            GROQ_STATE.update(model=m, json_ok=True)
+            return
+        if result == "json" and json_fallback is None:
+            json_fallback = m
+    if json_fallback:
+        log.warning("no Groq model passed the JSON-mode test; using %s without JSON mode", json_fallback)
+        GROQ_STATE.update(model=json_fallback, json_ok=False)
+        return
+    raise ProviderError(0, "No configured Groq model passed the availability check")
+
+
+async def _groq_chat(key, models, messages, json_mode, temperature):
+    for attempt in range(2):
+        if GROQ_STATE["model"] is None:
+            await _groq_select(key, models)
+        body = {"model": GROQ_STATE["model"], "messages": messages, "temperature": temperature}
+        if json_mode and GROQ_STATE["json_ok"]:
+            body["response_format"] = {"type": "json_object"}
+        r = await _groq_post(key, body)
+        _key_errors(r)
+        if r.status_code in (400, 404) and attempt == 0:
+            code, msg = error_info(r)
+            kind = classify_model_error(r.status_code, code, msg)
+            if kind:
+                log.warning("groq model %s rejected (%s): %s", GROQ_STATE["model"], kind, msg)
+                GROQ_STATE["model"] = None
+                continue
+        _check(r)
+        return r.json()["choices"][0]["message"]["content"]
+    raise ProviderError(0, "Groq model selection failed")
 
 
 async def _groq_models(key):
@@ -147,8 +269,9 @@ async def _fish_tts(key, model, text, reference_id):
 
 
 # ---- pooled calls --------------------------------------------------------
-async def groq_chat(pool, model, messages, json_mode=False, temperature=0.6):
-    return await pool.call("groq", lambda k: _groq_chat(k, model, messages, json_mode, temperature))
+async def groq_chat(pool, models, messages, json_mode=False, temperature=0.6):
+    """models: (primary, backup). Key problems rotate keys; only model problems switch models."""
+    return await pool.call("groq", lambda k: _groq_chat(k, tuple(models), messages, json_mode, temperature))
 
 
 async def groq_transcribe(pool, model, filename, content, content_type, language=None):

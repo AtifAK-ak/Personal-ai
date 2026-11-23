@@ -25,6 +25,7 @@ class MainActivity : FlutterActivity() {
                 SpeakService(ctx),
                 SpeechService(this),
                 PrefsService(ctx),
+                SecureStoreService(ctx),
                 perms
             )
         )

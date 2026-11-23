@@ -6,7 +6,8 @@
 | flashlight | on: bool | new state; error NO_FLASHLIGHT | none |
 | volume | action: up/down/mute/unmute/set, percent | media volume % | none (media stream only) |
 | app.open | name | opened app label; error APP_NOT_FOUND | QUERY_ALL_PACKAGES |
-| prefs.get / prefs.set | key, value | string / true | none |
+| prefs.get / prefs.set | key, value | string / true (plain settings) | none |
+| secure.get / secure.set | key, value | decrypted string / true. AES-256-GCM, key in the Android Keystore. Used for API keys and tokens | none |
 | permission.status / permission.request | name: microphone/camera/contacts/notifications | bool | the requested one |
 | permission.openSettings | none | true | none |
 | speech.listen / speech.stop | locale (ur-PK, en-US, hi-IN) | recognized text; errors NO_STT, NO_PERMISSION, STT_ERROR | RECORD_AUDIO |

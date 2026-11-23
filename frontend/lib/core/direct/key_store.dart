@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import '../app_log.dart';
 import '../native_bridge.dart';
 
 class QuotaException implements Exception {
@@ -10,11 +11,12 @@ class QuotaException implements Exception {
 }
 
 class ProviderException implements Exception {
-  const ProviderException(this.status);
+  const ProviderException(this.status, [this.detail = '']);
   final int status;
+  final String detail;
 
   @override
-  String toString() => 'ProviderException($status)';
+  String toString() => 'ProviderException($status) $detail';
 }
 
 class KeyUnavailableException implements Exception {
@@ -66,7 +68,7 @@ class KeyStore {
   Future<void> load() async {
     if (_loaded) return;
     _loaded = true;
-    final raw = await NativeBridge.prefsGet(_prefKey);
+    final raw = await NativeBridge.secureGet(_prefKey);
     if (raw == null || raw.isEmpty) return;
     try {
       final d = jsonDecode(raw) as Map<String, dynamic>;
@@ -98,7 +100,7 @@ class KeyStore {
           },
       },
     };
-    await NativeBridge.prefsSet(_prefKey, jsonEncode(data));
+    await NativeBridge.secureSet(_prefKey, jsonEncode(data));
   }
 
   String _newId() {
@@ -214,8 +216,12 @@ class KeyStore {
     while (true) {
       final e = _pick(provider, tried);
       if (e == null) {
-        throw KeyUnavailableException(
-            'No usable $provider key. Add or switch a key in Settings, Manage API keys.');
+        final cooling = (_keys[provider] ?? []).any((k) => k.status == 'cooling');
+        throw KeyUnavailableException((_keys[provider] ?? []).isEmpty
+            ? 'No $provider key yet. Add one in Settings, Manage API keys.'
+            : cooling
+                ? 'The $provider key is rate-limited or out of quota right now. Wait a minute or add another key.'
+                : 'Your $provider key was rejected. Press Test in Manage API keys, or add another key.');
       }
       _calls[provider] = (_calls[provider] ?? 0) + 1;
       try {
@@ -225,6 +231,7 @@ class KeyStore {
         e.status = q.permanent ? 'invalid' : 'cooling';
         e.until = DateTime.now().millisecondsSinceEpoch + q.cooldown * 1000;
         tried.add(e.id);
+        AppLog.add('$provider key ${e.id} marked ${e.status}');
         await _save();
         if (!auto) {
           throw KeyUnavailableException(

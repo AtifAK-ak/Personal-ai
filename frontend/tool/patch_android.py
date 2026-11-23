@@ -18,6 +18,16 @@ if not sources:
 for src in sources:
     (ma.parent / src.name).write_text(src.read_text().replace("__PACKAGE__", pkg))
 
+# App icon: copy our launcher icons over the generated ones.
+res = root / "res"
+for density in sorted(pathlib.Path("android_overrides/icons").glob("mipmap-*")):
+    target = res / density.name
+    target.mkdir(parents=True, exist_ok=True)
+    for png in density.glob("*.png"):
+        (target / png.name).write_bytes(png.read_bytes())
+for xml in res.glob("mipmap-anydpi*/ic_launcher*.xml"):
+    xml.unlink()  # drop any generated adaptive icon so our icon is used
+
 mf = root / "AndroidManifest.xml"
 text = mf.read_text()
 perms = [

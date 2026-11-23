@@ -41,6 +41,31 @@ class NativeBridge {
     await _call<bool>('prefs.set', {'key': key, 'value': value});
   }
 
+  /// Encrypted storage (AES-GCM, key in the Android Keystore) for secrets.
+  /// Older plain-text values are moved into it the first time they are read.
+  static Future<String?> secureGet(String key) async {
+    try {
+      final v = await _call<String>('secure.get', {'key': key});
+      if (v != null && v.isNotEmpty) return v;
+    } on PlatformException {
+      return null;
+    }
+    final old = await prefsGet(key);
+    if (old != null && old.isNotEmpty && await secureSet(key, old)) {
+      await prefsSet(key, '');
+      return old;
+    }
+    return null;
+  }
+
+  static Future<bool> secureSet(String key, String value) async {
+    try {
+      return await _call<bool>('secure.set', {'key': key, 'value': value}) ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   static Future<bool> permissionStatus(String name) async =>
       await _call<bool>('permission.status', {'name': name}) ?? false;
 

@@ -57,7 +57,7 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
 
   Future<void> _init() async {
     final cfg = await BackendConfig.load();
-    final tok = await NativeBridge.prefsGet(kPrefAdminToken);
+    final tok = await NativeBridge.secureGet(kPrefAdminToken);
     if (!mounted) return;
     setState(() {
       _remote = cfg != null;
@@ -78,7 +78,7 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
       _snack('Enter the admin token.');
       return null;
     }
-    await NativeBridge.prefsSet(kPrefAdminToken, token);
+    await NativeBridge.secureSet(kPrefAdminToken, token);
     return RemoteKeyBackend(
         ApiClient(BackendConfig(url: cfg.url, token: token, userId: cfg.userId)));
   }

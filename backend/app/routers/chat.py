@@ -64,10 +64,13 @@ async def chat(body: ChatIn, request: Request, uid: str = Depends(require_user))
     messages = [{"role": "system", "content": system}, *history,
                 {"role": "user", "content": body.message}]
     try:
-        raw = await providers.groq_chat(st.pool, s.groq_model, messages, json_mode=True)
+        raw = await providers.groq_chat(st.pool, (s.groq_model, s.groq_backup_model), messages, json_mode=True)
     except KeyUnavailable as e:
         raise HTTPException(503, str(e))
-    except (providers.ProviderError, httpx.HTTPError):
+    except providers.ProviderError as e:
+        log.warning("groq error %s: %s", e.status, e.detail)
+        raise HTTPException(502, f"AI service error ({e.status}): {e.detail}"[:300])
+    except httpx.HTTPError:
         raise HTTPException(502, "The AI service did not answer")
 
     plan = parse_llm_json(raw)
@@ -88,7 +91,7 @@ async def chat(body: ChatIn, request: Request, uid: str = Depends(require_user))
                 {"role": "user", "content": f"{body.message}\n\nUse only this data to answer briefly:\n{json.dumps(found, ensure_ascii=False)}"},
             ]
             try:
-                reply = (await providers.groq_chat(st.pool, s.groq_model, follow)).strip() or reply
+                reply = (await providers.groq_chat(st.pool, (s.groq_model, s.groq_backup_model), follow)).strip() or reply
             except (KeyUnavailable, providers.ProviderError, httpx.HTTPError):
                 pass
 

@@ -61,9 +61,10 @@ jobs:
       - name: Run tests
         run: flutter test
 
-      # Flutter's generated Android scaffold configures the release build to use
-      # the Android debug signing config for this CI APK. Gradle creates the
-      # runner-local debug keystore automatically; do not copy an ignored file.
+      - name: Use the fixed debug signing key (so app updates keep your data and keys)
+        run: |
+          mkdir -p ~/.android
+          cp android_overrides/debug.keystore ~/.android/debug.keystore
 
       - name: Build release APK (compiles Kotlin too)
         run: |

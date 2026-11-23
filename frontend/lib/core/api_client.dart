@@ -31,7 +31,11 @@ class ApiClient {
       req.headers.set('Authorization', 'Bearer ${config.token}');
       req.headers.set('X-User-Id', config.userId);
       req.headers.contentType = ContentType.json;
-      if (body != null) req.add(utf8.encode(jsonEncode(body)));
+      if (body != null) {
+        final data = utf8.encode(jsonEncode(body));
+        req.contentLength = data.length;
+        req.add(data);
+      }
       final res = await req.close().timeout(const Duration(seconds: 60));
       final text = await res.transform(utf8.decoder).join();
       if (res.statusCode >= 400) throw ApiException(res.statusCode, text);
@@ -61,7 +65,9 @@ class ApiClient {
       req.headers.set('Authorization', 'Bearer ${config.token}');
       req.headers.set('X-User-Id', config.userId);
       req.headers.contentType = ContentType.json;
-      req.add(utf8.encode(jsonEncode({'text': text, 'voice': voice})));
+      final data = utf8.encode(jsonEncode({'text': text, 'voice': voice}));
+      req.contentLength = data.length;
+      req.add(data);
       final res = await req.close().timeout(const Duration(seconds: 60));
       if (res.statusCode >= 400) {
         throw ApiException(res.statusCode, 'tts failed');
